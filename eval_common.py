@@ -11,7 +11,7 @@ import torch
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
-from luna16_data import DEFAULT_DATA_DIR, load_data
+from luna16_data import DEFAULT_DATA_DIR, build_slice_lookup, load_data, neighbor_indices
 from metrics import confusion_counts, hd_dist, metrics_from_confusion
 from utils import create_dir, seeding
 
@@ -34,20 +34,6 @@ def _read_gray(path):
     if image is None:
         raise RuntimeError(f"Failed to read image: {path}")
     return image
-
-
-def _neighbor_indices(index, paths):
-    center_dir = os.path.dirname(paths[index])
-    prev_idx = index
-    next_idx = index
-
-    if index - 1 >= 0 and os.path.dirname(paths[index - 1]) == center_dir:
-        prev_idx = index - 1
-
-    if index + 1 < len(paths) and os.path.dirname(paths[index + 1]) == center_dir:
-        next_idx = index + 1
-
-    return prev_idx, index, next_idx
 
 
 def _process_prediction(y_pred):
@@ -128,6 +114,7 @@ def run_evaluation(model_factory, config):
     (_, _), (_, _), (test_x, test_y) = load_data(config.data_dir)
     if len(test_x) == 0:
         raise RuntimeError(f"Test split is empty. Check data directory: {config.data_dir}")
+    slice_lookup = build_slice_lookup(test_x) if config.use_25d else None
 
     diagnostics = {
         "counts": np.zeros(4, dtype=np.float64),
@@ -143,7 +130,7 @@ def run_evaluation(model_factory, config):
 
     for index, (x_path, y_path) in tqdm(enumerate(zip(test_x, test_y)), total=len(test_x)):
         if config.use_25d:
-            prev_idx, center_idx, next_idx = _neighbor_indices(index, test_x)
+            prev_idx, center_idx, next_idx = neighbor_indices(index, test_x, slice_lookup)
             slices = []
             for slice_idx in (prev_idx, center_idx, next_idx):
                 img = _read_gray(test_x[slice_idx])
@@ -224,6 +211,7 @@ def run_evaluation(model_factory, config):
         {
             "model": config.model_name,
             "dataset_version": os.environ.get("DATASET_VERSION"),
+            "label_type": os.environ.get("LABEL_TYPE"),
             "test_samples": len(test_x),
             "mean_inference_seconds": mean_time_taken,
             "mean_fps": 1 / mean_time_taken if mean_time_taken > 0 else 0.0,

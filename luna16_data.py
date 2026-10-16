@@ -37,6 +37,39 @@ def _nodule_index(path):
         return (1, name)
 
 
+def build_slice_lookup(paths):
+    """Index slices by case directory and numeric z order, independent of list order."""
+    lookup = {}
+    case_numbers = {}
+    for position, path in enumerate(paths):
+        path = Path(path)
+        try:
+            number = int(path.stem.rsplit("_", 1)[-1])
+        except ValueError as exc:
+            raise ValueError(f"2.5D slice name needs a numeric index: {path}") from exc
+        key = (path.parent, number)
+        if key in lookup:
+            raise ValueError(f"Duplicate 2.5D slice index: {path}")
+        lookup[key] = position
+        case_numbers.setdefault(path.parent, []).append(number)
+    for directory, numbers in case_numbers.items():
+        ordered = sorted(numbers)
+        if ordered != list(range(ordered[0], ordered[-1] + 1)):
+            raise ValueError(f"Missing 2.5D slice index under {directory}")
+    return lookup
+
+
+def neighbor_indices(index, paths, lookup):
+    """Return true z-1, z, z+1 within one case; repeat center at boundaries."""
+    center = Path(paths[index])
+    number = int(center.stem.rsplit("_", 1)[-1])
+    return (
+        lookup.get((center.parent, number - 1), index),
+        index,
+        lookup.get((center.parent, number + 1), index),
+    )
+
+
 def load_data(path=DEFAULT_DATA_DIR):
     """Load Task03_lung folders and keep the original split policy."""
     root = Path(path)
@@ -110,19 +143,10 @@ class LUNA16SliceDataset(Dataset):
         self.transform = transform
         self.use_25d = use_25d
         self.n_samples = len(images_path)
+        self.slice_lookup = build_slice_lookup(images_path) if use_25d else None
 
     def _get_neighbor_indices(self, index):
-        center_dir = os.path.dirname(self.images_path[index])
-        prev_idx = index
-        next_idx = index
-
-        if index - 1 >= 0 and os.path.dirname(self.images_path[index - 1]) == center_dir:
-            prev_idx = index - 1
-
-        if index + 1 < self.n_samples and os.path.dirname(self.images_path[index + 1]) == center_dir:
-            next_idx = index + 1
-
-        return prev_idx, index, next_idx
+        return neighbor_indices(index, self.images_path, self.slice_lookup)
 
     @staticmethod
     def _read_gray(path):

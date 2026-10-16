@@ -185,6 +185,7 @@ def run_training(model_factory, config):
         "model": config.model_name,
         "data_dir": str(config.data_dir),
         "dataset_version": os.environ.get("DATASET_VERSION"),
+        "label_type": os.environ.get("LABEL_TYPE"),
         "image_size": config.image_size,
         "batch_size": config.batch_size,
         "num_epochs": config.num_epochs,
